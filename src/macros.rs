@@ -34,11 +34,13 @@ use crate::rewrite::{
     MacroErrorKind, Rewrite, RewriteContext, RewriteError, RewriteErrorExt, RewriteResult,
 };
 use crate::shape::{Indent, Shape};
+use crate::skip::macro_def_body_snippet_has_skip_attribute;
 use crate::source_map::SpanUtils;
 use crate::spanned::Spanned;
 use crate::utils::{
     NodeIdExt, filtered_str_fits, indent_next_line, is_empty_line, mk_sp,
-    remove_trailing_white_spaces, rewrite_ident, trim_left_preserve_layout,
+    remove_trailing_white_spaces, rewrite_ident, strip_macro_body_fold_indent_prefix,
+    trim_left_preserve_layout,
 };
 use crate::visitor::FmtVisitor;
 
@@ -1339,6 +1341,15 @@ impl MacroBranch {
         } else {
             shape.indent.block_indent(&config)
         };
+        let indent_str = body_indent.to_string(&config);
+        // Inverse of the indentation pass below. Omit when the body contains real skip attributes
+        // (same predicate as `contains_skip`) so irregular layout is preserved (issue-3105).
+        let body_str = if macro_def_body_snippet_has_skip_attribute(&config, &body_str) {
+            body_str
+        } else {
+            strip_macro_body_fold_indent_prefix(&body_str, indent_str.as_ref(), &config)
+        };
+
         let new_width = config.max_width() - body_indent.width();
         config.set().max_width(new_width);
 
@@ -1368,7 +1379,6 @@ impl MacroBranch {
         }
 
         // Indent the body since it is in a block.
-        let indent_str = body_indent.to_string(&config);
         let mut new_body = LineClasses::new(new_body_snippet.snippet.trim_end())
             .enumerate()
             .fold(

@@ -662,6 +662,33 @@ pub(crate) fn trim_left_preserve_layout(
     )
 }
 
+/// Strip one [`Indent::to_string`] prefix from each line where [`indent_next_line`] would add it
+/// when emitting a macro-definition body — the inverse of `MacroBranch::rewrite`'s folding step.
+///
+/// This prevents non-idempotent formatting of items like `#[doc = concat!(...)]` inside macro
+/// rules (see rustfmt #5974).
+pub(crate) fn strip_macro_body_fold_indent_prefix(
+    snippet: &str,
+    indent_prefix: &str,
+    config: &Config,
+) -> String {
+    let mut result = String::with_capacity(snippet.len());
+    let mut need_strip = true;
+
+    for (kind, line) in LineClasses::new(snippet) {
+        let mut line_out = line.clone();
+        if !is_empty_line(&line) && need_strip && line.starts_with(indent_prefix) {
+            line_out = line[indent_prefix.len()..].to_owned();
+        }
+        result.push_str(&line_out);
+        result.push('\n');
+        need_strip = indent_next_line(kind, &line, config);
+    }
+
+    result.pop(); // trailing newline added after last line
+    result
+}
+
 /// Based on the given line, determine if the next line can be indented or not.
 /// This allows to preserve the indentation of multi-line literals when
 /// re-inserted a code block that has been formatted separately from the rest
